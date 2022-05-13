@@ -258,11 +258,22 @@ class ToltecSignalFits:
             self._constructKernelInterp()
         
         # subtract
-        x = np.arange(image.shape[0])-sourcePos[1]
-        y = np.arange(image.shape[1])-sourcePos[0]
+        # x = np.arange(image.shape[0])-sourcePos[1]
+        # y = np.arange(image.shape[1])-sourcePos[0]
+        # kp = self.kerFunc(x, y)
+        # kp = kp/kp.max()*sourceAmp
+        # return image-kp
+
+        # create a (40x40) cutout for performing the subtraction
+        c = Cutout2D(image, (int(sourcePos[0]),int(sourcePos[1])), 100, copy=False)
+        sp = c.to_cutout_position(sourcePos)
+        x = np.arange(c.shape[0])-sp[1]
+        y = np.arange(c.shape[1])-sp[0]
         kp = self.kerFunc(x, y)
         kp = kp/kp.max()*sourceAmp
-        return image-kp
+        c.data -= kp
+        return image
+        
 
 
     def removeBdsfCatalogFromImage(self, name, image=None,
@@ -293,14 +304,17 @@ class ToltecSignalFits:
         # Set the minumum flux for a removed source to be 3-sigma
         self.getWeight()
         sigma = 1./np.sqrt(self.weight.max()) * self.to_mJyPerBeam
-        fluxLimit = max(fluxLimit, sigma*3.)
+        fluxLimit = max(fluxLimit, sigma*1.)
 
         # Read in the catalog
         c = BdsfCat(catFile, verbose=True)
-
+        nSources = len(c.sources)
+        
         # Subtract the sources
+        i = 0
         for s in c.sources:
             if(s.peakFlux >= fluxLimit):
+                i += 1
                 px, py = wcs.world_to_pixel(s.coords)
                 pos = (px.min(), py.min())
                 print()
@@ -312,6 +326,9 @@ class ToltecSignalFits:
                 image = self.subtractKernelFromImage(name, image=image,
                                                      sourcePos=pos,
                                                      sourceAmp=s.peakFlux*fluxCorr)
+        nSubtracted = i
+        self.bdsf_catalog_nSources = nSources
+        self.bdsf_catalog_nSubtracted = nSubtracted
         return image
         
         
@@ -365,6 +382,8 @@ class ToltecSignalFits:
             print("Map UNITS now Jy/Beam")
             print("Average noise in map is {} Jy/Beam.".format(avgNoise))
             print()
+        else:
+            avgNoise = 1./np.sqrt(self.weight.max())*self.to_mJyPerBeam
 
         header.append(('BMAJ', self.beam.to_value(u.deg)))
         header.append(('BMIN', self.beam.to_value(u.deg)))
