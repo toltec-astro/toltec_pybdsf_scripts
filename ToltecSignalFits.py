@@ -47,9 +47,13 @@ class ToltecSignalFits:
         
         # find the corresponding fits file
         # don't include noise maps
-        ffile = glob.glob(path+'*{}*.fits'.format(array))
+        sstring = path+'*{}*.fits'.format(array)
+        ffile = glob.glob(sstring)
+        print()
+        print(ffile)
         self.filename = [i for i in ffile if 'noise' not in i]
         if(len(ffile) == 0):
+            print("search string is: {}".format(sstring))
             raise OSError('No fits file for {} found at {}'.format(array, path))
         self.filename = self.filename[0]
         print("Fits file found: "+self.filename)
@@ -68,6 +72,7 @@ class ToltecSignalFits:
         self.to_mJyPerBeam = self.headers[0]['HIERARCH TO_MJY/B']
         self.obsnum = self.headers[0]['OBSNUM']
         self.units = self.headers[0]['UNIT']
+        self.citlali_version = self.headers[0]['CREATOR']
 
         # set a default weight cut to 0 so we default to getting
         # everything
@@ -76,7 +81,7 @@ class ToltecSignalFits:
 
         # determine the beam sizes by fitting a gaussian to the kernel
         # map
-        r, pos = self.fitImageToGaussian('kernel', verbose=False)
+        r, pos = self.fitImageToGaussian('kernel_I', verbose=False)
         self.beam = r.params['fwhmx'].value*u.arcsec
         self.kerFunc = None
 
@@ -84,14 +89,15 @@ class ToltecSignalFits:
     def getMap(self, name):
         """Extracts an image from the Fits file.  
            The image is referenced by its extname. Valid input names are:
-           'signal', 'weight', 'kernel', 'coverage', 'sig2noise'
+           'signal_I', 'weight_I', 'kernel_I', 'coverage_I', 'sig2noise_I'
 
            If weightCut is nonzero, pixels in the image with associated weight
            that are less than weightCut are set to zero.
         """
         i = self._checkInputName(name)
         with fits.open(self.filename, mmap=True) as hd:
-            image = hd[i].data
+            wcsobj = WCS(hd[i].header).sub(2) 
+            image = hd[i].data.reshape(wcsobj.array_shape)
 
         # apply the weight cut if set
         if(self.weightCut > 0.):
@@ -118,9 +124,10 @@ class ToltecSignalFits:
         """Read the weight map into memory."""
         if(self.weight is not None):
             return
-        i = self.extNames.index('weight')
+        i = self.extNames.index('weight_I')
         with fits.open(self.filename, mmap=True) as hd:
-            self.weight = hd[i].data
+            wcsobj = WCS(hd[i].header).sub(2) 
+            self.weight = hd[i].data.reshape(wcsobj.array_shape)
 
             
     def plotImage(self, name, image=None,
@@ -151,7 +158,7 @@ class ToltecSignalFits:
                 print("Only the signal and weight images can change units.")
 
         # finally fetch the wcs and make the plot
-        wcs = WCS(self.headers[i])
+        wcs = WCS(self.headers[i]).sub(2)
         if(ax is None):
             ax = plt.subplot(projection=wcs)
         ax.imshow(image, origin='lower', vmin=vmin, vmax=vmax)
@@ -172,10 +179,18 @@ class ToltecSignalFits:
           - plot (bool) - make a plot of the cutout and centroid?
           - verbose (bool) - wordy output
         """
+        # verify the name and get the index of the hdu
+        i = self._checkInputName(name)
         image = self.getMap(name)
         self.getWeight()
         if(pos is None):
-            pos = (self.headers[0]['CRPIX1'], self.headers[0]['CRPIX2'])
+            pos = (self.headers[i]['CRPIX1'], self.headers[i]['CRPIX2'])
+
+        print("pos={}".format(pos))
+        print("size={}".format(size))
+        print("Image shape = {}".format(image.shape))
+        print()
+        
         cutout = Cutout2D(image, pos, size)
         weightout = Cutout2D(self.weight, pos, size)
         Z = cutout.data
@@ -211,8 +226,8 @@ class ToltecSignalFits:
     def _constructKernelInterp(self):
         """Builds a 2-d interpolation of the kernel image.  This is 
         useful for source modeling, addition and subtraction."""
-        k = self.getMap('kernel')
-        r, pos = self.fitImageToGaussian('kernel', verbose=False)
+        k = self.getMap('kernel_I')
+        r, pos = self.fitImageToGaussian('kernel_I', verbose=False)
         self.kerFunc = rbs(np.arange(k.shape[0])-pos[1],
                            np.arange(k.shape[1])-pos[0], k)
 
@@ -235,14 +250,16 @@ class ToltecSignalFits:
                                and amplitude using pos and amp as guesses if provided.
         """
         # Preliminaries
+        # verify the name and get the index of the hdu
+        i = self._checkInputName(name)
         if image is None:
             image = self.getMap(name)
         self.getWeight()
         # Deal with the inputs.  If pos is not given, head for center
         # of the map.
         if(sourcePos is None):
-            sourcePos = (int(self.headers[0]['CRPIX1']),
-                         int(self.headers[0]['CRPIX2']))
+            sourcePos = (int(self.headers[i]['CRPIX1']),
+                         int(self.headers[i]['CRPIX2']))
         # get pos from a fit, use whatever pos is as a target for the fit
         if(fitForVals == True):
             r, sourcePos = self.fitImageToGaussian(name, pos=sourcePos,
@@ -257,14 +274,7 @@ class ToltecSignalFits:
         if(self.kerFunc is None):
             self._constructKernelInterp()
         
-        # subtract
-        # x = np.arange(image.shape[0])-sourcePos[1]
-        # y = np.arange(image.shape[1])-sourcePos[0]
-        # kp = self.kerFunc(x, y)
-        # kp = kp/kp.max()*sourceAmp
-        # return image-kp
-
-        # create a (40x40) cutout for performing the subtraction
+        # create a (100x100) cutout for performing the subtraction
         c = Cutout2D(image, (int(sourcePos[0]),int(sourcePos[1])), 100, copy=False)
         sp = c.to_cutout_position(sourcePos)
         x = np.arange(c.shape[0])-sp[1]
@@ -299,7 +309,7 @@ class ToltecSignalFits:
         if image is None:
             image = self.getMap(name)
             image *= self.to_mJyPerBeam
-        wcs = WCS(self.headers[i])
+        wcs = WCS(self.headers[i]).sub(2)
         
         # Set the minumum flux for a removed source to be 3-sigma
         self.getWeight()
@@ -348,13 +358,15 @@ class ToltecSignalFits:
         """
         
         # Preliminaries
+        # verify the name and get the index of the hdu
+        i = self._checkInputName(name)
         if image is None:
             image = self.getMap(name)
         # Deal with the inputs.  If pos is not given, head for center
         # of the map.
         if(sourcePos is None):
-            sourcePos = (int(self.headers[0]['CRPIX1']),
-                         int(self.headers[0]['CRPIX2']))
+            sourcePos = (int(self.headers[i]['CRPIX1']),
+                         int(self.headers[i]['CRPIX2']))
         # get kernel interpolation function
         if(self.kerFunc is None):
             self._constructKernelInterp()
@@ -388,8 +400,6 @@ class ToltecSignalFits:
         header.append(('BMAJ', self.beam.to_value(u.deg)))
         header.append(('BMIN', self.beam.to_value(u.deg)))
         header.append(('BPA', 0.))
-        header.append(('CDELT1', header['CD1_1']))
-        header.append(('CDELT2', header['CD2_2']))
         header.append(('FREQ', self.freq.to_value(u.Hz)))
         hduP = fits.PrimaryHDU(image, header)
         hdulist = fits.HDUList([hduP])
