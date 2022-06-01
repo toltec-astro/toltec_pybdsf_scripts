@@ -49,7 +49,6 @@ class ToltecSignalFits:
         # don't include noise maps
         sstring = path+'*{}*.fits'.format(array)
         ffile = glob.glob(sstring)
-        print()
         print(ffile)
         self.filename = [i for i in ffile if 'noise' not in i]
         if(len(ffile) == 0):
@@ -281,11 +280,6 @@ class ToltecSignalFits:
         self.getWeight()
         if(pos is None):
             pos = (self.headers[i]['CRPIX1'], self.headers[i]['CRPIX2'])
-
-        print("pos={}".format(pos))
-        print("size={}".format(size))
-        print("Image shape = {}".format(image.shape))
-        print()
         
         cutout = Cutout2D(image, pos, size)
         weightout = Cutout2D(self.weight, pos, size)
