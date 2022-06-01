@@ -26,6 +26,13 @@ class BdsfCat:
         self.catFile = catFile
         self.verbose = verbose
         self.readCat()
+        self.sortByFlux()
+        self.fluxes = [s.peakFlux for s in self.sources]
+        self.ras = [s.ra for s in self.sources]
+        self.decs = [s.dec for s in self.sources]
+        self.s2ns = [s.s2n for s in self.sources]
+        self.coords = SkyCoord([s.coords for s in self.sources])
+
 
     def readCat(self):
         self.sources = []
@@ -46,3 +53,26 @@ class BdsfCat:
             print("  Number of sources: {}".format(len(dd)))
             print("  Max source flux: {} mJy".format(mf))
         hdul.close()
+
+
+    def sortByFlux(self):
+        sorted = []
+        f = [-s.peakFlux for s in self.sources]
+        w = np.argsort(f)
+        s = [self.sources[i] for i in w]
+        self.sources = s
+
+
+    def trimToWeight(self, weight, wcs):
+        swc = []
+        for s in self.sources:
+            px, py = wcs.world_to_pixel(s.coords)
+            pos = (px.min(), py.min())
+            if(weight[(round(pos[1]), round(pos[0]))] > 0):
+                swc.append(s)
+        self.sources = swc
+        self.fluxes = [s.peakFlux for s in self.sources]
+        self.ras = [s.ra for s in self.sources]
+        self.decs = [s.dec for s in self.sources]
+        self.s2ns = [s.s2n for s in self.sources]
+        self.coords = SkyCoord([s.coords for s in self.sources])
