@@ -69,9 +69,9 @@ class ToltecSignalFits:
                 self.headers.append(h.header)
             
         self.array = self.headers[0]['WAV']
-        self.to_mJyPerBeam = self.headers[0]['HIERARCH TO_MJY/B']
+        self.to_mJyPerBeam = self.headers[0]['HIERARCH TO_MJY/BEAM']
+        self.to_MJyPerSr = self.headers[0]['HIERARCH TO_MJY/SR']
         self.obsnum = self.headers[0]['OBSNUM']
-        self.units = self.headers[0]['UNIT']
         self.citlali_version = self.headers[0]['CREATOR']
 
         # set a default weight cut to 0 so we default to getting
@@ -109,6 +109,14 @@ class ToltecSignalFits:
         return image
             
 
+    def getMapWCS(self, name):
+        """Returns the WCS objects of the map corresponding to "name."
+        """
+        i = self._checkInputName(name)
+        wcsobj = WCS(self.headers[i]).sub(2)
+        return wcsobj
+
+        
     def setWeightCut(self, wc):
         """Sets a fractional weight limit for the output maps.  This is
          useful when you want to trim off the low-weight outer edges
@@ -130,15 +138,22 @@ class ToltecSignalFits:
             self.weight = hd[i].data.reshape(wcsobj.array_shape)
 
             
-    def plotImage(self, name, image=None,
-                  vmin=None, vmax=None, ax=None,
-                  units='MJy/sr'):
-        """Makes a nice plot of the image using the WCS projection.
+    def plotCutout(self, name, coords, image=None,
+                   vmin=None, vmax=None, ax=None,
+                   title=None,
+                   markerCoords=None,
+                   units='mJy/beam',
+                   size=(20, 20)):
+        """Makes a plot of a cutout of the image using the WCS projection.
         Inputs:
           - name (string), the EXTNAME of the image or WCS.
+          - coords (SkyCoord object), the coords of the center of the cutout
           - image (array), optional image to use in place of the FITS image
           - vmin, vmax (floats), min and max fluxes for imshow
-          - units (string), one of 'MJy/sr' (default) or 'mJy/beam'
+          - units (string), one of 'MJy/sr' or 'mJy/beam (default)'
+          - title (string), an optional title for the plot
+          - markerCoords (SkyCoord object), optional coordinates for a circular marker
+          - size ((m,n)), the size in pixels of the cutout (default: (20,20))
         """
         # verify the name and get the index of the hdu
         i = self._checkInputName(name)
@@ -150,12 +165,77 @@ class ToltecSignalFits:
 
         # choose your units
         if(units == 'mJy/beam'):
-            if(name == 'weight'):
-                image /= (self.to_mJyPerBeam)**2
-            if(name == 'signal'):
-                image *= self.to_mJyPerBeam                
-            else:
-                print("Only the signal and weight images can change units.")
+            converter = self.to_mJyPerBeam
+        elif(units == 'MJy/sr'):
+            converter = self.to_MJyPerSr
+        else:
+            raise ValueError("No such unit: {}".format(units))
+
+        if(name == 'weight_I'):
+            image /= converter**2
+        elif(name == 'signal_I'):
+            image *= converter
+        else:
+            print("Only the signal and weight images can change units.")
+
+        # the wcs
+        wcs = WCS(self.headers[i]).sub(2)
+
+        # the cutout
+        pos = wcs.world_to_pixel(coords)
+        cutout = Cutout2D(image, pos, size, wcs=wcs)
+
+        # the plot
+        if(ax is None):
+            ax = plt.subplot(projection=cutout.wcs)
+        ax.imshow(cutout.data, origin='lower', vmin=vmin, vmax=vmax)
+        ax.grid(color='white', ls='solid')
+        if(title is not None):
+            ax.set_title(title)
+        if(markerCoords is not None):
+            tx = ax.get_transform('world')
+            ax.scatter(markerCoords.ra.value, markerCoords.dec.value,
+                       transform=tx, s=100,
+                       edgecolor='red', facecolor='none')
+        
+        return cutout
+        
+    
+    def plotImage(self, name, image=None,
+                  vmin=None, vmax=None, ax=None,
+                  units='mJy/beam',
+                  bdsfCat=None,
+                  bdsfCatFluxLow=None,
+                  bdsfCatFluxHigh=None):
+        """Makes a nice plot of the image using the WCS projection.
+        Inputs:
+          - name (string), the EXTNAME of the image or WCS.
+          - image (array), optional image to use in place of the FITS image
+          - vmin, vmax (floats), min and max fluxes for imshow
+          - units (string), one of 'MJy/sr' or 'mJy/beam (default)'
+        """
+        # verify the name and get the index of the hdu
+        i = self._checkInputName(name)
+
+        # if the image is not provided as a keyword, fetch it using
+        # the name
+        if image is None:
+            image = self.getMap(name)
+
+        # choose your units
+        if(units == 'mJy/beam'):
+            converter = self.to_mJyPerBeam
+        elif(units == 'MJy/sr'):
+            converter = self.to_MJyPerSr
+        else:
+            raise ValueError("No such unit: {}".format(units))
+
+        if(name == 'weight_I'):
+            image /= converter**2
+        elif(name == 'signal_I'):
+            image *= converter
+        else:
+            print("Only the signal and weight images can change units.")
 
         # finally fetch the wcs and make the plot
         wcs = WCS(self.headers[i]).sub(2)
@@ -164,6 +244,22 @@ class ToltecSignalFits:
         ax.imshow(image, origin='lower', vmin=vmin, vmax=vmax)
         ax.grid(color='white', ls='solid')
 
+        # overlay sources from PyBDSF catalog if present
+        if (bdsfCat is not None):
+            tx = ax.get_transform('world')
+            if (bdsfCatFluxLow is None):
+                fluxLow = 0.
+            else:
+                fluxLow = bdsfCatFluxLow
+            if (bdsfCatFluxHigh is None):
+                fluxHigh = 1000.
+            else:
+                fluxHigh = bdsfCatFluxHigh
+            for s in bdsfCat.sources:
+                if (s.peakFlux > fluxLow) and (s.peakFlux < fluxHigh):
+                    ax.scatter(s.ra.value, s.dec.value, transform=tx, s=10,
+                               edgecolor='white', facecolor='none')
+        
         # todo: add a colorbar
         return ax
 
