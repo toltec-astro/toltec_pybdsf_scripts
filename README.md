@@ -14,11 +14,22 @@ subtract subsets or entire catalogs of sources add sources Of course, all of
 these tasks can probably be improved, but I'm pretty happy so far with how they
 work.
 
+Usage Example: 
+  from ToltecSignalFits import ToltecSignalFits
+  tf1p1 = ToltecSignalFits(<path to citlali output fits files>, array='a1100')
+  tf1p1.setWeighCut(0.5)
+  tf1p1.plotMap('signal_I', vmin=-0.1, vmax=3.)
+
 #### BdsfCat.py
 
 This is a helper class for reading in and reformatting PyBDSF catalogs.  This
 is much less sophisticated than ToltecSignalFits.py but I find it useful all
-the same.
+the same.  The class pulls data from the ...srl.FITS file in the catalog directory
+of the pyBdsf reduction.
+ 
+Usage Example:
+  from BdsfCat import BdsfCat
+  pb = BdsfCat(<path to srl.FITS file>)
 
 #### subtractSourcesExample.py
 
