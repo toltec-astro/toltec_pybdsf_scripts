@@ -18,13 +18,21 @@ class BdsfSource:
 
 class BdsfCat:
     """Utility class for reading and working with PyBDSF FITS catalogs."""
-    def __init__(self, catFile, verbose=False):
-        """catFile must be a PyBDSF FITS catalog output."""
+    def __init__(self, catFile, array='a1100', verbose=False):
+        """
+        Creating a BdsfCat object will read in the pyBdsf data, sort the
+        catalog in decreasing order by flux, and organize the source 
+        candidates into both arrays and BdsfSource objects.
+        Inputs:
+           catFile (string) - path and name of PyBDSF FITS catalog output.
+           array (string) - one of 'a1100' (default), 'a1400', or 'a2000'
+        """
         # check that the catalog file exists
         if not os.path.exists(catFile):
             raise ValueError("{} does not exist.".format(catFile))
         self.catFile = catFile
         self.verbose = verbose
+        self.array = array
         self.readCat()
         self.sortByFlux()
         self.fluxes = [s.peakFlux for s in self.sources]
@@ -35,6 +43,10 @@ class BdsfCat:
 
 
     def readCat(self):
+        """
+        Reads the input catalog.  Source fluxes are converted from 
+        Jy/beam to mJy/beam.
+        """
         self.sources = []
         hdul = fits.open(self.catFile)
         dd = hdul[1].data
@@ -64,6 +76,13 @@ class BdsfCat:
 
 
     def trimToWeight(self, weight, wcs):
+        """
+        This method trims the BdsfCatalog to only include sources where the 
+        input weight map is nonzero.
+        Inputs:
+          weight (array) - a weight map image for the observation.
+          wcs - the corresponding wcs for the input weight map.
+        """
         swc = []
         for s in self.sources:
             px, py = wcs.world_to_pixel(s.coords)
