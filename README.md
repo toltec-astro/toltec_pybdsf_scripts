@@ -27,25 +27,42 @@ work.
 This is a helper class for reading in and reformatting PyBDSF catalogs.  This
 is much less sophisticated than ToltecSignalFits.py but I find it useful all
 the same.  The class pulls data from the ...srl.FITS file in the catalog directory
-of the pyBdsf reduction.
+of the pyBdsf reduction. This class can be combined with ToltecSignalFits class to extract 
+point source photometry using PSF fitting
  
 Usage Example:
 ```
   from BdsfCat import BdsfCat
   pb = BdsfCat(<path to srl.FITS file>)
+  tab_phot,index_weight=tf1p1.photPS(pb)
+  #index_weight returns where in the BdsfCat (pb) the weight in the signal is above that 
+  set in the TolTecSignalFits class
+  
+  
+  
 ```
 
 #### SimuInputSources.py
 
 This is a helper class for reading in and reformatting the simu input source lists
 that are used by tolteca simu to populate point sources in simulated maps.
+This class has a method (inphotPS) to perform PSF photometry at the input sources 
+coordinates using a ToltecSignalFits object. Once inphotPS is used, one can 
+plot the comparison between input and observed fluxes.
 
 Usage Example:
 ```
   from SimuInputSources import SumuInputSources
-  fluxLimit = 0.2     #in mJy
+  fluxLimit = 1.0     #in mJy
   sq = SimuInputSources(sourceFile, fluxLimit=fluxLimit)
+  inputtab_phot=sq.inphotPS(tf1p1)
+  inputtab_phot.plotInPhot()
+  
 ```
+
+
+
+
 
 #### CatalogMatch.py
 
@@ -76,6 +93,13 @@ paths to point them someplace useful.
 This is a script that uses pyBdsf to identify sources. This will generate a
 catalog that the scripts above can read and use.  I don't have pyBdsf installed
 on my laptop so I just run this script on Unity.
+
+#### AstropyTab.py
+
+This is a helper class for reading in and comparing fluxes from 
+an astropy table.
+
+
 
 ### How to Contribute
 
