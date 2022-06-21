@@ -9,6 +9,17 @@ from BdsfCat import BdsfCat
 import numpy as np
 import lmfit
 import glob
+from AstropyTab import AstropyTab
+from astropy.coordinates import SkyCoord  
+from astropy.coordinates import ICRS
+from astropy.table import Table
+from photutils.psf import IntegratedGaussianPRF, DAOGroup, BasicPSFPhotometry
+from photutils.background import MMMBackground
+from astropy.modeling.fitting import LevMarLSQFitter
+from astropy.stats import gaussian_sigma_to_fwhm
+from photutils.aperture import aperture_photometry, CircularAperture, CircularAnnulus, ApertureStats
+
+
 plt.ion()
 
 # A generic class to easily grab the contents of a TolTEC signal filts
@@ -83,7 +94,6 @@ class ToltecSignalFits:
         r, pos = self.fitImageToGaussian('kernel_I', verbose=False)
         self.beam = r.params['fwhmx'].value*u.arcsec
         self.kerFunc = None
-
 
     def getMap(self, name):
         """Extracts an image from the Fits file.  
@@ -520,3 +530,132 @@ class ToltecSignalFits:
         except:
             raise ValueError('Input name must be in {}'.format(self.extNames))
         return i
+    
+    
+#########################################################    
+####Method to perform photometry    
+#########################################################3
+    def photPS(self,cat,method='psf',xy_fixed=True,fitfact=2.5,radius_ap=20.*u.arcsec,inphot=False):
+        """Performs Point Source photometry from the signal image and a catalog of positions.
+        Inputs:
+         - cat [BdsfCat class], the catalog from PyBDSF already read as a BdsfCat class.
+         - method [string], optional - default 'psf'. Method used in the photometry estimation. Available pptions:  'psf', 'aperture'.
+         - xy_fixed [bool], optional - default True. Fixed center positions fixed or let as free parameters  in the case of psf photometry. 
+         - fitfact [float], optional - default 2.5. Factor to apply to the beam size to use as a fitshape parameter in the case of psf photometry.
+         - radius_ap [astropy.units.Quantity], optional -  default 20.*u.arcsec. Radius of the circular aperture in the case of aperture photometry.
+         - inphot (bool) - if the input fluxes of the sources are known , i.e., if the photometry is done for a SimuInputSources object. False by default. 
+        Outputs:
+         - result_tab AstropyTab. AstropyTab object which contains an astropy table with the photometry results, i.e., centroids and fluxes estimations and the initial estimates used to start the fitting process.
+         - index_weights [array]. Array reporting the elements of the catalog where the weight is larger than the weightCut set at the ToltecSignalFits object (which is 0 by default). 
+         
+        """
+
+      
+        tfipj=self
+        ra=cat.ras
+        dec=cat.decs
+        
+        #hdr0=tfipj.headers[0]
+        hdr=tfipj.headers[1]
+        array_name=tfipj.array
+        beam_fwhm=self.beam*abs(hdr['CDELT1'])*3600.
+        beam_fwhm = beam_fwhm.to(u.deg)
+        fwhm_to_sigma = 1. / (8 * np.log(2))**0.5
+        omega_B=np.pi/(4.*np.log(2))*beam_fwhm**2
+        flux_fact=self.to_mJyPerBeam/(omega_B.value/abs(hdr['CDELT1'])**2)
+        
+        
+        image=tfipj.getMap('signal_I')*flux_fact
+        noise=(tfipj.getMap('weight_I'))**(-0.5)*flux_fact
+        w = WCS(hdr)
+        w=w.celestial
+        
+        
+        sky = SkyCoord(ra, dec, frame=ICRS, unit=(u.deg, u.deg))
+        x, y = w.world_to_pixel(sky)
+        weights=tfipj.getMap('weight_I')
+        weights_xy=np.empty(len(x))
+        flux_0=np.empty(len(x))
+        for i in range(len(x)):
+            if (int(round(x[i])) in range(weights.shape[1])) and (int(round(y[i])) in range(weights.shape[0]-1)):
+              weights_xy[i]=weights[int(round(y[i])),int(round(x[i]))]
+              flux_0[i]=image[int(round(y[i])),int(round(x[i]))]/flux_fact
+            else: 
+              weights_xy[i]=-99. 
+              flux_0[i]=-99.
+        index_weights=np.where(weights_xy>tfipj.weightCut*np.nanmax(weights))    
+        x=x[index_weights]
+        y=y[index_weights]
+        flux_0=flux_0[index_weights]
+        
+        med_weight=np.median(weights_xy[index_weights])
+        if method=='psf':
+            
+           sigma_psf=beam_fwhm.to(u.arcsec).value/(abs(hdr['CDELT1'])*3600.)/gaussian_sigma_to_fwhm
+           fitshape=int((fitfact*(beam_fwhm.value/abs(hdr['CDELT1'])))/2)*2+1
+           
+           daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
+           
+           mmm_bkg = MMMBackground()
+           
+           fitter = LevMarLSQFitter()
+           
+           psf_model = IntegratedGaussianPRF(sigma=sigma_psf)
+           
+           psf_model.x_0.fixed = xy_fixed
+           
+           psf_model.y_0.fixed = xy_fixed
+           
+           
+           
+           #for 
+           
+           
+           sources=Table()
+           #if len(x)>1:
+           sources['x_mean']=x
+           sources['y_mean']=y
+           sources['flux_0']=flux_0
+           #else:
+            #sources['x_mean']=[x]
+            #sources['y_mean']=[y]
+              
+           pos = Table(names=['x_0', 'y_0','flux_0'], data=[sources['x_mean'],
+           
+                                                   sources['y_mean'],sources['flux_0']])
+           
+           #photometry = DAOPhotPSFPhotometry(crit_separation=9, threshold=10.*(med_weight)**(-0.5)*flux_fact, fwhm=9, psf_model=psf_model, fitshape=fitshape)
+           #photometry = IterativelySubtractedPSFPhotometry(finder=None,
+                                                #group_maker=daogroup,
+                                                #bkg_estimator=mmm_bkg,
+                                                #psf_model=psf_model,
+                                                #fitter=LevMarLSQFitter(),
+                                                #niters=3, fitshape=fitshape)
+           photometry = BasicPSFPhotometry(group_maker=daogroup,
+                                           bkg_estimator=mmm_bkg,
+                                           psf_model=psf_model,
+                                           fitter=LevMarLSQFitter(),
+                                           fitshape=fitshape)
+           
+           result_tab = photometry(image=image, init_guesses=pos)
+
+           #result_tab_group=photometry.nstar(image=image, star_groups=result_tab)
+        elif method=='aperture':
+            positions=[(x[i],y[i]) for i in range(len(x))]
+            radius_ap=((radius_ap.to(u.deg))/(abs(hdr['CDELT1'])*u.deg)).value
+            aperture = CircularAperture(positions, r=radius_ap)
+            annulus_aperture = CircularAnnulus(positions, r_in=radius_ap+20, r_out=radius_ap+25)
+            result_tab = aperture_photometry(image, aperture, error=noise)
+            aperstats = ApertureStats(image, annulus_aperture)
+           
+            bkg_median = aperstats.median
+            aperture_area = aperture.area_overlap(image)
+            total_bkg = bkg_median * aperture_area
+            phot_bkgsub = result_tab['aperture_sum'] - total_bkg
+            result_tab['total_bkg'] = total_bkg
+        
+            result_tab['aperture_sum_bkgsub'] = phot_bkgsub
+            for col in result_tab.colnames:
+        
+               result_tab[col].info.format = '%.8g' 
+        return AstropyTab(result_tab,inphot=inphot),index_weights 
