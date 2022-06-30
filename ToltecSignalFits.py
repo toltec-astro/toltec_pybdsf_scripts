@@ -563,7 +563,7 @@ class ToltecSignalFits:
         fwhm_to_sigma = 1. / (8 * np.log(2))**0.5
         omega_B=np.pi/(4.*np.log(2))*beam_fwhm**2
         flux_fact=self.to_mJyPerBeam/(omega_B.value/abs(hdr['CDELT1'])**2)
-        
+        fitshape=int((fitfact*(beam_fwhm.value/abs(hdr['CDELT1'])))/2)*2+1
         
         image=tfipj.getMap('signal_I')*flux_fact
         noise=(tfipj.getMap('weight_I'))**(-0.5)*flux_fact
@@ -579,11 +579,11 @@ class ToltecSignalFits:
         for i in range(len(x)):
             if (int(round(x[i])) in range(weights.shape[1])) and (int(round(y[i])) in range(weights.shape[0]-1)):
               weights_xy[i]=weights[int(round(y[i])),int(round(x[i]))]
-              flux_0[i]=image[int(round(y[i])),int(round(x[i]))]/flux_fact
+              flux_0[i]=np.max(image[int(round(y[i]-fitshape*0.5)):int(round(y[i]+fitshape*0.5)),int(round(x[i]-fitshape*0.5)):int(round(x[i]+fitshape*0.5))].flatten())/flux_fact
             else: 
               weights_xy[i]=-99. 
               flux_0[i]=-99.
-        index_weights=np.where(weights_xy>tfipj.weightCut*np.nanmax(weights))    
+        index_weights=np.where(weights_xy>tfipj.weightCut*np.nanmax(weights))[0]    
         x=x[index_weights]
         y=y[index_weights]
         flux_0=flux_0[index_weights]
@@ -592,7 +592,7 @@ class ToltecSignalFits:
         if method=='psf':
             
            sigma_psf=beam_fwhm.to(u.arcsec).value/(abs(hdr['CDELT1'])*3600.)/gaussian_sigma_to_fwhm
-           fitshape=int((fitfact*(beam_fwhm.value/abs(hdr['CDELT1'])))/2)*2+1
+           
            
            daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
            
@@ -633,11 +633,14 @@ class ToltecSignalFits:
                                                 #niters=3, fitshape=fitshape)
            photometry = BasicPSFPhotometry(group_maker=daogroup,
                                            bkg_estimator=mmm_bkg,
+                                           #bkg_estimator=None,
                                            psf_model=psf_model,
                                            fitter=LevMarLSQFitter(),
                                            fitshape=fitshape)
            
            result_tab = photometry(image=image, init_guesses=pos)
+           id_sort=result_tab['id'].argsort()
+           result_tab=result_tab[id_sort]
 
            #result_tab_group=photometry.nstar(image=image, star_groups=result_tab)
         elif method=='aperture':
@@ -658,4 +661,4 @@ class ToltecSignalFits:
             for col in result_tab.colnames:
         
                result_tab[col].info.format = '%.8g' 
-        return AstropyTab(result_tab,inphot=inphot),index_weights 
+        return AstropyTab(result_tab,array=array_name,inphot=inphot,index_weights=index_weights)

@@ -92,15 +92,15 @@ class SimuInputSources:
         """        
   
 
-        astropytab,index_weights=tfipj.photPS(self,xy_fixed=False,inphot=True)
+        astropytab=tfipj.photPS(self,xy_fixed=False,inphot=True)
         phot_tab=astropytab.astrotab
         
         if tfipj.array=='a1100':
-         phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f1p1)[index_weights[0]][phot_tab['id']-1]
+         phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f1p1)[astropytab.index_weights][phot_tab['id']-1]
         elif  tfipj.array=='a1400':
-         phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f1p4)[index_weights[0]][phot_tab['id']-1]
+         phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f1p4)[astropytab.index_weights][phot_tab['id']-1]
         elif  tfipj.array=='a2000':
-         phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f2p0)[index_weights[0]][phot_tab['id']-1]   
+         phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f2p0)[astropytab.index_weights][phot_tab['id']-1]   
          
         phot_tab['flux_fit_group'] = np.empty(len(phot_tab))
         phot_tab['flux_unc_group'] = np.empty(len(phot_tab))
@@ -116,4 +116,4 @@ class SimuInputSources:
           phot_tab['flux_'+tfipj.array+'_input_group'][np.where(phot_tab['group_id']==i)]=flux_in
           phot_tab['flux_fit_group'][np.where(phot_tab['group_id']==i)]=flux_out
           phot_tab['flux_unc_group'][np.where(phot_tab['group_id']==i)]=flux_out_err         
-        return AstropyTab(phot_tab,inphot=True)
+        return AstropyTab(phot_tab,array=tfipj.array,inphot=True,index_weights=astropytab.index_weights)

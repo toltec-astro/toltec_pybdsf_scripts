@@ -22,6 +22,9 @@ work.
   tf1p1.plotMap('signal_I', vmin=-0.1, vmax=3.)
 ```
   
+
+
+  
 #### BdsfCat.py
 
 This is a helper class for reading in and reformatting PyBDSF catalogs.  This
@@ -34,9 +37,8 @@ Usage Example:
 ```
   from BdsfCat import BdsfCat
   pb = BdsfCat(<path to srl.FITS file>)
-  tab_phot,index_weight=tf1p1.photPS(pb)
-  #index_weight returns where in the BdsfCat (pb) the weight in the signal is above that 
-  set in the TolTecSignalFits class
+  tab_phot=tf1p1.photPS(pb)
+  #tab_phot.astrotab is the astropy table, while tab_phot.index is an index array   indicating where in the BdsfCat (pb) the weight in the signal is above that  set in the TolTecSignalFits class
   
   
   
@@ -69,7 +71,10 @@ Usage Example:
 This class manages matching a SimuInputSources catalog with a pyBdsf catalog.
 There are several assumptions used in the matching methods and so a user should
 read that part of the code carefully.  The output is a set of dictionaries of 
-matches, false detections, and unmatched input sources.
+matches, false detections, and unmatched input sources. It can be combined 
+with the ToltecSignalFits class to extract the PSF photometry of a BdfsCat 
+and plot the comparisons between PSF photometry-PyBDSF photometry-and input 
+matched fluxes. 
 
 Usage Example:
 ```
@@ -80,6 +85,9 @@ Usage Example:
   tf = ToltecSignalFits("squarecatReduction/", array='a1100')
   cm.printSummary()
   cm.plotOverlays(tf, vmin=-0.1, vmax=2.0, title='')
+  ##
+  tab_phot=tf.photPS(pb)
+  cm.plotMatch(tab_phot)
 ```
 
 #### subtractSourcesExample.py
@@ -96,8 +104,11 @@ on my laptop so I just run this script on Unity.
 
 #### AstropyTab.py
 
-This is a helper class for reading in and comparing fluxes from 
-an astropy table.
+This is a helper class for reading and working with Astropy tables. This class can be 
+combined with BdsfCat and SimuInputSources classes to plot the comparison between
+input fluxes and PSF photometry.
+
+See BdfsCat and SimuInputSources for examples:
 
 
 

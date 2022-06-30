@@ -297,3 +297,53 @@ class CatalogMatch:
         plt.ylabel('Flux Ratio: pybdsf/catalog')
         plt.plot(catFlux, ratios, '.k')
         plt.plot([0., np.array(catFlux).max()], [1., 1.], '--k')
+
+    def plotMatch(self,tabphot):
+        fluxPSF = []
+        fluxPSF_err = []
+        catFlux = []
+        pybdsfFlux = []
+        fluxdict={'a1100':'f1p1','a1400':'f1p4','a2000':'f2p0'}
+        #self.matches=self.matches[tabphot.index_weights]
+        #cont_match=0
+        for m in self.matches:
+         catFlux.append(m['simInputCat'][fluxdict[tabphot.array]])
+         pybdsfFlux.append(m['pyBdsfCat']['flux'])   
+         index_tab=np.where( tabphot.index_weights==m['pyBdsfCat']['indx'])[0]
+         print(index_tab)
+         if len(index_tab)==1:
+            
+            fluxPSF.append(tabphot.astrotab['flux_fit'][index_tab])
+            fluxPSF_err.append(tabphot.astrotab['flux_unc'][index_tab])
+
+             
+         else:    
+            fluxPSF.append(np.nan)  
+            fluxPSF_err.append(0.) 
+        print(len(fluxPSF),len(catFlux),len(self.matches))   
+        fig, axs = plt.subplots(3,figsize=(8,20))
+        #fig.subplots_adjust(wspace=3.0)
+        fig.subplots_adjust(hspace=1.0)
+        axs[0].errorbar(np.array(catFlux,dtype=float),np.array(fluxPSF,dtype=float),yerr=np.array(fluxPSF_err,dtype=float),fmt='.',color='black',ecolor='grey',elinewidth=0.5)
+        #axs[0].plot(catFlux,fluxPSF,'.')
+        axs[0].plot(catFlux,catFlux,color='black')
+        axs[0].set_title(tabphot.array+ ' Matched' ,fontsize=18)
+        axs[0].set_xlabel('$F_{\\rm{in}}$[mJy]',fontsize=18)
+        axs[0].set_ylabel('$F_{\\rm{PSF}}$[mJy]',fontsize=18)
+        axs[0].set_ylim(min(np.array(fluxPSF)*0.7),max(np.array(fluxPSF)*1.3))       
+        axs[1].errorbar(np.array(pybdsfFlux,dtype=float),np.array(fluxPSF,dtype=float),yerr=np.array(fluxPSF_err,dtype=float),fmt='.',color='black',ecolor='grey',elinewidth=0.5)
+        axs[1].plot(pybdsfFlux,pybdsfFlux,color='black')
+        axs[1].set_title(tabphot.array+ ' Matched' ,fontsize=18)
+        axs[1].set_xlabel('$F_{\\rm{pyBDSF}}$[mJy]',fontsize=18)
+        axs[1].set_ylabel('$F_{\\rm{PSF}}$[mJy]',fontsize=18)       
+        axs[1].set_ylim(min(np.array(fluxPSF)*0.8),max(np.array(fluxPSF)*1.2))   
+        
+        axs[2].plot(catFlux,pybdsfFlux,'.',color='black')
+        axs[2].plot(catFlux,catFlux,color='black')
+        axs[2].set_title(tabphot.array+ ' Matched' ,fontsize=18)
+        axs[2].set_ylabel('$F_{\\rm{pyBDSF}}$[mJy]',fontsize=18)
+        axs[2].set_xlabel('$F_{\\rm{in}}$[mJy]',fontsize=18)       
+        axs[2].set_ylim(min(np.array(catFlux)*0.8),max(np.array(catFlux)*1.2))           
+
+
+

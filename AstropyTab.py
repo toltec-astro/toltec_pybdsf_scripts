@@ -1,11 +1,12 @@
 from astropy.table import Table
 from matplotlib import pyplot as plt
+import numpy as np
 
 plt.ion()
 
 class AstropyTab:
     """Utility class for reading and working with Astropy tables """
-    def __init__(self, astrotab, array='a1100',inphot=False):
+    def __init__(self, astrotab, array='a1100',inphot=False,index_weights=[]):
         """
         Creating a AstropyTab object will read in the astropy table.
         Inputs:
@@ -17,6 +18,10 @@ class AstropyTab:
         self.astrotab=astrotab
         self.array = array
         self.inphot=inphot
+        if len(index_weights)> 0.:
+         self.index_weights=index_weights
+        else:
+         self.index_weights=np.arange(len(astrotab))  
 
 
 
@@ -35,7 +40,8 @@ class AstropyTab:
             plt.title(self.array,fontsize=18)
             plt.xlabel('$F_{\\rm{in}}$[mJy]',fontsize=18)
             plt.ylabel('$F_{\\rm{obs}}$[mJy]',fontsize=18)
-            plt.ylim(min(self.astrotab['flux_fit']*0.8),max(self.astrotab['flux_fit']*1.2))
+            
+            plt.ylim(min(self.astrotab['flux_'+self.array+'_input'])*0.4,max(self.astrotab['flux_'+self.array+'_input'])*2.2)
 
     def plotInPhotGroup(self):
         """
@@ -53,9 +59,9 @@ class AstropyTab:
             plt.title(self.array+' Grouped',fontsize=18)
             plt.xlabel('$F_{\\rm{in}}$[mJy]',fontsize=18)
             plt.ylabel('$F_{\\rm{obs}}$[mJy]',fontsize=18)
-            plt.ylim(min(self.astrotab['flux_fit_group']*0.8),max(self.astrotab['flux_fit_group']*1.2))
+            plt.ylim(min(self.astrotab['flux_'+self.array+'_input_group'])*0.4,max(self.astrotab['flux_'+self.array+'_input_group'])*2.2)
             
-            
+
             
             
             
