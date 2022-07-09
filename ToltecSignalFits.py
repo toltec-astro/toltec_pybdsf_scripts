@@ -13,8 +13,6 @@ import glob
 from astropy.coordinates import SkyCoord  
 from astropy.coordinates import ICRS
 from astropy.table import Table
-from photutils.psf import IntegratedGaussianPRF, DAOGroup, BasicPSFPhotometry
-from photutils.background import MMMBackground
 from astropy.modeling.fitting import LevMarLSQFitter
 from astropy.stats import gaussian_sigma_to_fwhm
 from astropy.utils.exceptions import AstropyUserWarning
@@ -672,6 +670,11 @@ class ToltecSignalFits:
          
         """
 
+        # special imports here
+        import AstropyTab
+        from photutils.psf import IntegratedGaussianPRF, DAOGroup, BasicPSFPhotometry
+        from photutils.background import MMMBackground
+        from photutils.aperture import aperture_photometry, CircularAperture, CircularAnnulus, ApertureStats
       
         tfipj=self
         ra=cat.ras
@@ -782,5 +785,6 @@ class ToltecSignalFits:
             result_tab['aperture_sum_bkgsub'] = phot_bkgsub
             for col in result_tab.colnames:
         
-               result_tab[col].info.format = '%.8g' 
+               result_tab[col].info.format = '%.8g'
+
         return AstropyTab(result_tab,array=array_name,inphot=inphot,index_weights=index_weights)
