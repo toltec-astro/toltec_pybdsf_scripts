@@ -1,5 +1,6 @@
 from scipy.interpolate import RectBivariateSpline as rbs
 from matplotlib import pyplot as plt
+from matplotlib.patches import Ellipse
 from astropy.nddata import Cutout2D
 from astropy import units as u
 import scipy.constants as sc
@@ -9,7 +10,6 @@ from BdsfCat import BdsfCat
 import numpy as np
 import lmfit
 import glob
-from AstropyTab import AstropyTab
 from astropy.coordinates import SkyCoord  
 from astropy.coordinates import ICRS
 from astropy.table import Table
@@ -17,7 +17,11 @@ from photutils.psf import IntegratedGaussianPRF, DAOGroup, BasicPSFPhotometry
 from photutils.background import MMMBackground
 from astropy.modeling.fitting import LevMarLSQFitter
 from astropy.stats import gaussian_sigma_to_fwhm
-from photutils.aperture import aperture_photometry, CircularAperture, CircularAnnulus, ApertureStats
+from astropy.utils.exceptions import AstropyUserWarning
+from astropy.convolution import Gaussian2DKernel
+from astropy.modeling import models, fitting
+from astropy.convolution import convolve
+import warnings
 
 
 plt.ion()
@@ -91,9 +95,9 @@ class ToltecSignalFits:
 
         # determine the beam sizes by fitting a gaussian to the kernel
         # map
-        r, pos = self.fitImageToGaussian('kernel_I', verbose=False)
-        self.beam = r.params['fwhmx'].value*u.arcsec
-        self.kerFunc = None
+#        r, pos = self.fitImageToGaussian('kernel_I', verbose=False)
+#        self.beam = r.params['fwhmx'].value*u.arcsec
+#        self.kerFunc = None
 
     def getMap(self, name):
         """Extracts an image from the Fits file.  
@@ -321,6 +325,124 @@ class ToltecSignalFits:
         #  - add the results of the fit as a legend or annotation
         
         return result, cutout.to_original_position(centerpos)
+
+
+    def fitGaussian(self, name, pos=None,
+                    size=(40, 40),
+                    ax=None,
+                    image=None,
+                    weight=None,
+                    wcs=None,
+                    plotCutout=True,
+                    plotFull=False,
+                    plotConvolved=False,
+                    returnImage=False,
+                    onlyMakeCutout=False,
+                    verbose=True,
+                    vmin=None, vmax=None):
+
+        # verify the name and get the index of the hdu
+        i = self._checkInputName(name)
+        image = self.getMap(name)
+        self.getWeight()
+        if(wcs is None):
+            wcs = self.getMapWCS(name)            
+        kernel = Gaussian2DKernel(x_stddev=3)
+        convolvedImage = convolve(image, kernel)
+        if(pos is None):
+            pos = np.unravel_index(np.argmax(convolvedImage),
+                                   image.shape)
+            pos = np.roll(pos, 1)
+
+        cutout = Cutout2D(image, pos, size, mode='partial', fill_value=0.,
+                          wcs=wcs)
+        weightout = Cutout2D(self.weight, pos, size, mode='partial',
+                             fill_value=0., wcs=wcs)
+        wcsCutout = cutout.wcs
+        Z = cutout.data
+        W = weightout.data
+        X, Y = np.mgrid[0:size[0], 0:size[1]]
+        Xs = np.zeros((X.shape[0], X.shape[1]))
+        Ys = np.empty_like(Xs)
+        for i in range(X.shape[0]):
+            for j in range(X.shape[1]):
+                x, y = wcsCutout.pixel_to_world(X[i,j], Y[i,j])
+                Xs[i,j] = x.value
+                Ys[i,j] = y.value
+
+        if(onlyMakeCutout):
+            return None, Z, wcsCutout
+        
+        # Fit the data using astropy.modeling
+        p_init = models.Gaussian2D(amplitude=Z.max(), x_mean=Xs.mean(),
+                                   y_mean=Ys.mean(),
+                                   x_stddev=3., y_stddev=3.,
+                                   theta=3.*np.pi/2.)
+        fit_p = fitting.LevMarLSQFitter(calc_uncertainties=True)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore',
+                                    message='Model is linear in parameters',
+                                    category=AstropyUserWarning)
+            p = fit_p(p_init, Xs, Ys, Z, weights=W)
+            pcov = fit_p.fit_info['param_cov']
+            fit = (p, pcov)
+
+        x0, y0 = wcsCutout.world_to_pixel(p.x_mean.value*u.arcsec,
+                                          p.y_mean.value*u.arcsec)        
+        centerpos = (x0, y0)
+        xy = cutout.to_original_position(centerpos)
+        lonlat = wcs.pixel_to_world(xy[0], xy[1])
+
+        if(plotConvolved):
+            Z = Cutout2D(convolvedImage, pos, size,
+                         mode='partial', fill_value=0.,
+                         wcs=wcs).data            
+    
+        if(plotCutout):
+            if(ax is None):
+                plt.figure(2)
+                plt.clf()
+                ax = plt.subplot(projection=wcsCutout)
+            else:
+                ax = ax
+            ax.imshow(Z, origin='lower', vmin=vmin, vmax=vmax)
+            ax.axvline(x=y0)
+            ax.axhline(y=x0)
+            ells = Ellipse(xy=(y0, x0),
+                           width=p.x_stddev.value*2.355, height=p.y_stddev.value*2.355,
+                           angle=np.rad2deg(p.theta.value)-90.,
+                           facecolor='none',
+                           edgecolor='red')
+            ax.add_artist(ells)
+            ells.set_clip_box(ax.bbox)
+    
+        if(plotFull):
+            plt.figure(3)
+            plt.clf()
+            ax = plt.subplot(projection=wcs)
+            if(plotConvolved):
+                ax.imshow(convolvedImage)
+            else:
+                ax.imshow(image, vmin=vmin, vmax=vmax)
+            ax.axvline(x=xy[0])
+            ax.axhline(y=xy[1])
+            ells = Ellipse(xy=xy,
+                           width=p.x_stddev.value*2.355,
+                           height=p.y_stddev.value*2.355,
+                           angle=np.rad2deg(p.theta.value)-90.,
+                           facecolor='none',
+                           edgecolor='red')
+            ax.add_artist(ells)
+            ells.set_clip_box(ax.bbox)
+
+
+        if(returnImage):
+            if(plotConvolved):
+                return [fit, Z, wcsCutout]
+            else:
+                return [fit, Z, wcsCutout]
+        else:
+            return fit
 
 
     def _constructKernelInterp(self):
