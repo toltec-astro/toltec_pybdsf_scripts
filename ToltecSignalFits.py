@@ -20,8 +20,14 @@ from astropy.convolution import Gaussian2DKernel
 from astropy.modeling import models, fitting
 from astropy.convolution import convolve
 import warnings
-
-
+from photutils.psf import IntegratedGaussianPRF, DAOGroup, BasicPSFPhotometry
+from photutils.background import MMMBackground
+from photutils.aperture import aperture_photometry, CircularAperture, CircularAnnulus, ApertureStats
+from photutils.segmentation import detect_sources
+from photutils.segmentation import deblend_sources
+from photutils.segmentation import SourceCatalog
+from photutils.background import Background2D, MedianBackground
+from AstropyTab import AstropyTab
 plt.ion()
 
 # A generic class to easily grab the contents of a TolTEC signal filts
@@ -38,7 +44,7 @@ class ToltecSignalFits:
     """
 
     #instantiate
-    def __init__(self, path='.', array='a1100'):
+    def __init__(self, path='.', array='a1100',label=''):
         """Instantiator for a ToltecSignalFits object.
         Inputs: 
           path (string) - the path to the output FITS files.
@@ -94,8 +100,11 @@ class ToltecSignalFits:
         # determine the beam sizes by fitting a gaussian to the kernel
         # map
 #        r, pos = self.fitImageToGaussian('kernel_I', verbose=False)
-#        self.beam = r.params['fwhmx'].value*u.arcsec
+        fitker=self.fitGaussian('kernel_I')
+        self.beam = ((fitker[0].x_stddev.value+fitker[0].y_stddev.value)*0.5*u.arcmin).to(u.arcsec)
+        self.maxKer=fitker[0].amplitude.value
 #        self.kerFunc = None
+        self.label=label
 
     def getMap(self, name):
         """Extracts an image from the Fits file.  
@@ -364,18 +373,23 @@ class ToltecSignalFits:
         Ys = np.empty_like(Xs)
         for i in range(X.shape[0]):
             for j in range(X.shape[1]):
-                x, y = wcsCutout.pixel_to_world(X[i,j], Y[i,j])
-                Xs[i,j] = x.value
-                Ys[i,j] = y.value
+                xy = wcsCutout.pixel_to_world(X[i,j], Y[i,j])
+                Xs[i,j] = xy.ra.to(u.arcmin).value
+                Ys[i,j] = xy.dec.to(u.arcmin).value
+                #Xs[i,j] = xy.ra.value
+                #Ys[i,j] = xy.dec.value
 
         if(onlyMakeCutout):
             return None, Z, wcsCutout
         
         # Fit the data using astropy.modeling
+        # Dependent on the initial values. If coordinates
+        # in degrees no solution is found
+        # Then, coordinates are in arcmin
         p_init = models.Gaussian2D(amplitude=Z.max(), x_mean=Xs.mean(),
                                    y_mean=Ys.mean(),
-                                   x_stddev=3., y_stddev=3.,
-                                   theta=3.*np.pi/2.)
+                                   x_stddev=0.01, y_stddev=0.01,
+                                   theta=3.*np.pi/2.)#,bounds={'x_stddev':(None,0.5),'y_stddev':(None,0.5)})
         fit_p = fitting.LevMarLSQFitter(calc_uncertainties=True)
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore',
@@ -385,8 +399,8 @@ class ToltecSignalFits:
             pcov = fit_p.fit_info['param_cov']
             fit = (p, pcov)
 
-        x0, y0 = wcsCutout.world_to_pixel(p.x_mean.value*u.arcsec,
-                                          p.y_mean.value*u.arcsec)        
+        x0, y0 = wcsCutout.world_to_pixel(SkyCoord(ra=p.x_mean.value*u.arcsec,
+                                          dec=p.y_mean.value*u.arcsec))        
         centerpos = (x0, y0)
         xy = cutout.to_original_position(centerpos)
         lonlat = wcs.pixel_to_world(xy[0], xy[1])
@@ -652,9 +666,6 @@ class ToltecSignalFits:
         return i
     
     
-#########################################################    
-####Method to perform photometry    
-#########################################################3
     def photPS(self,cat,method='psf',xy_fixed=True,fitfact=2.5,radius_ap=20.*u.arcsec,inphot=False):
         """Performs Point Source photometry from the signal image and a catalog of positions.
         Inputs:
@@ -670,11 +681,6 @@ class ToltecSignalFits:
          
         """
 
-        # special imports here
-        import AstropyTab
-        from photutils.psf import IntegratedGaussianPRF, DAOGroup, BasicPSFPhotometry
-        from photutils.background import MMMBackground
-        from photutils.aperture import aperture_photometry, CircularAperture, CircularAnnulus, ApertureStats
       
         tfipj=self
         ra=cat.ras
@@ -683,15 +689,22 @@ class ToltecSignalFits:
         #hdr0=tfipj.headers[0]
         hdr=tfipj.headers[1]
         array_name=tfipj.array
-        beam_fwhm=self.beam*abs(hdr['CDELT1'])*3600.
+        ## Ideally data could be in MJy/Sr and no need to use the kernel 
+        ## and the beam. However, the reduced data has an error 
+        ## on the toMJyPerSr conversion and can not be used. 
+        ## More recent version do not have this issue and this 
+        ## should be change in order to not use the beam
+        beam_fwhm=self.beam*gaussian_sigma_to_fwhm#*abs(hdr['CDELT1'])#*3600.
         beam_fwhm = beam_fwhm.to(u.deg)
         fwhm_to_sigma = 1. / (8 * np.log(2))**0.5
         omega_B=np.pi/(4.*np.log(2))*beam_fwhm**2
         flux_fact=self.to_mJyPerBeam/(omega_B.value/abs(hdr['CDELT1'])**2)
         fitshape=int((fitfact*(beam_fwhm.value/abs(hdr['CDELT1'])))/2)*2+1
+        #print('toMJyperSr',self.to_MJyPerSr)
+        #flux_fact=self.to_MJyPerSr*1.e9*abs(hdr['CDELT1']*np.pi/180.)**2
         
-        image=tfipj.getMap('signal_I')*flux_fact
-        noise=(tfipj.getMap('weight_I'))**(-0.5)*flux_fact
+        image=tfipj.getMap('signal_I')*flux_fact/self.maxKer
+        noise=(tfipj.getMap('weight_I'))**(-0.5)*flux_fact/self.maxKer
         w = WCS(hdr)
         w=w.celestial
         
@@ -702,12 +715,19 @@ class ToltecSignalFits:
         weights_xy=np.empty(len(x))
         flux_0=np.empty(len(x))
         for i in range(len(x)):
+            
             if (int(round(x[i])) in range(weights.shape[1])) and (int(round(y[i])) in range(weights.shape[0]-1)):
-              weights_xy[i]=weights[int(round(y[i])),int(round(x[i]))]
+             weights_xy[i]=weights[int(round(y[i])),int(round(x[i]))]
+             if weights_xy[i]>0.:
+              #print('weights',weights_xy[i])
+              #print(image[int(round(y[i]-fitshape*0.5))])
+              #print(image[int(round(y[i]-fitshape*0.5)):int(round(y[i]+fitshape*0.5)),int(round(x[i]-fitshape*0.5)):int(round(x[i]+fitshape*0.5))].flatten())
               flux_0[i]=np.max(image[int(round(y[i]-fitshape*0.5)):int(round(y[i]+fitshape*0.5)),int(round(x[i]-fitshape*0.5)):int(round(x[i]+fitshape*0.5))].flatten())/flux_fact
+             else:
+              flux_0[i] =-99.  
             else: 
               weights_xy[i]=-99. 
-              flux_0[i]=-99.
+              flux_0[i]
         index_weights=np.where(weights_xy>tfipj.weightCut*np.nanmax(weights))[0]    
         x=x[index_weights]
         y=y[index_weights]
@@ -785,6 +805,82 @@ class ToltecSignalFits:
             result_tab['aperture_sum_bkgsub'] = phot_bkgsub
             for col in result_tab.colnames:
         
-               result_tab[col].info.format = '%.8g'
-
+               result_tab[col].info.format = '%.8g' 
         return AstropyTab(result_tab,array=array_name,inphot=inphot,index_weights=index_weights)
+###Segmentation of extended images    
+    def segmentation(self,npixels=5,snr=3.5,min_flux=None):
+      """ 
+      Method to detect the different resolved extended regions on an extended 
+      object. Photutils is used. See
+      
+      https://photutils.readthedocs.io/en/stable/segmentation.html
+      
+      for more information
+      
+      Inputs.
+           
+      -npixels (int) The minimum number of connected pixels, each greater than threshold, that an object must have to be deblended. npixels must be a positive integer.
+      -snr (float). The desired signal to noise value to be used for the detection threshold. If min_flux is not None, snr argument is ignored. 
+      -min_flux (float or 2D ndarray). The data value or pixel-wise data values to be used for the detection threshold. A 2D threshold array must have the same shape as data.
+      
+      Outputs
+      tbls (astropy.table.Table) - astropy table containing the photometry on the segments identified on the ToltecSignalFits.
+      segms_deblend (photutils.segmentation.SegmentationImage). Segments  estimated on the ToltecSignalFits.
+      """
+                
+      tfipj=self
+      hdr=tfipj.headers[1]
+
+      flux_fact=self.to_MJyPerSr*1.e9*abs(hdr['CDELT1']*np.pi/180.)**2
+      image=tfipj.getMap('signal_I')*flux_fact/self.maxKer
+      image[np.where(tfipj.getMap('weight_I')<tfipj.weightCut)]=np.nan
+    
+      bkg_estimator = MedianBackground()
+      mask=np.ones((image.shape[0], image.shape[1]), dtype=bool)
+      mask[np.where(image>-9.e38)]=False
+      nboxes=15
+      boxsizex=int(np.ceil(image.shape[0]/nboxes-1))
+      boxsizey=int(np.ceil(image.shape[1]/nboxes-1))
+      #print(boxsizex,boxsizey)
+      #bkg = Background2D(image, (boxsizex, boxsizey), filter_size=(7, 7), bkg_estimator=bkg_estimator,coverage_mask=mask,fill_value=np.nan)
+      bkg = Background2D(image, (50, 50), filter_size=(3, 3), bkg_estimator=bkg_estimator)#,coverage_mask=mask,fill_value=np.nan)
+      #print('median rms in mJy/px ',bkg.background_rms_median)
+      fits.PrimaryHDU(bkg.background,header=hdr).writeto('back.fits',overwrite=True)
+      #fits.PrimaryHDU(image,header=hdr).writeto('backsub.fits',overwrite=True)
+      image -= bkg.background  # subtract the background   
+      fits.PrimaryHDU(image,header=hdr).writeto('backsub.fits',overwrite=True)
+      if min_flux==None:
+      
+
+       threshold = snr * bkg.background_rms
+      else:
+       threshold = min_flux*flux_fact/self.maxKer   
+      #threshold = detect_threshold(image, nsigma=5.)
+      segm = detect_sources(image, threshold, npixels=npixels)
+      #print(segm.shape)
+      segm_deblend = deblend_sources(image, segm, npixels=npixels,nlevels=32, contrast=0.001)
+      #print(segm_deblend.shape)
+      ###############################
+      #fits.PrimaryHDU(segm_deblend,header=hdr).writeto('segm_deblend.fits',overwrite=True)
+      
+      #################################
+      
+      cat = SourceCatalog(image, segm_deblend)#, convolved_data=image)}
+      
+      
+      tbl = cat.to_table()
+      self.extPhotTab=tbl
+      return tbl,segm_deblend
+  
+class ToltecFitsList:
+    "A List of toltecSignalFits to perform comparison between observations"
+    def __init__(self, toltecfits_list):
+        self.toltecfits = toltecfits_list
+    def segmentation(self,npixels=5,snr=3.5,min_flux=None):
+        tbls=[]
+        segms_deblend=[]
+        for tfi in  self.toltecfits:
+            tbli,segm_deblendi=tfi.segmentation(npixels=npixels,snr=snr,min_flux=min_flux)            
+            tbls.append(tbli)
+            segms_deblend.append(segm_deblendi)
+        return  tbls,segms_deblend   

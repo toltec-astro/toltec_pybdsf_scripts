@@ -299,28 +299,33 @@ class CatalogMatch:
         plt.plot([0., np.array(catFlux).max()], [1., 1.], '--k')
 
     def plotMatch(self,tabphot):
+        #tabphot=tabphot
+        #print(tabphot.astrotab)
+        #print(tabphot.index_weights)
         fluxPSF = []
         fluxPSF_err = []
         catFlux = []
         pybdsfFlux = []
+        pybdsfFlux_err = []
         fluxdict={'a1100':'f1p1','a1400':'f1p4','a2000':'f2p0'}
         #self.matches=self.matches[tabphot.index_weights]
         #cont_match=0
         for m in self.matches:
          catFlux.append(m['simInputCat'][fluxdict[tabphot.array]])
          pybdsfFlux.append(m['pyBdsfCat']['flux'])   
-         index_tab=np.where( tabphot.index_weights==m['pyBdsfCat']['indx'])[0]
-         print(index_tab)
+         pybdsfFlux_err.append(m['pyBdsfCat']['flux']/m['pyBdsfCat']['s2n'])
+         index_tab=np.where( tabphot.index_weights[0]==m['pyBdsfCat']['indx'])[0]
+         #print(index_tab)
          if len(index_tab)==1:
             
-            fluxPSF.append(tabphot.astrotab['flux_fit'][index_tab])
-            fluxPSF_err.append(tabphot.astrotab['flux_unc'][index_tab])
+            fluxPSF.append(tabphot.astrotab[0]['flux_fit'][index_tab])
+            fluxPSF_err.append(tabphot.astrotab[0]['flux_unc'][index_tab])
 
              
          else:    
             fluxPSF.append(np.nan)  
             fluxPSF_err.append(0.) 
-        print(len(fluxPSF),len(catFlux),len(self.matches))   
+        #print(len(fluxPSF),len(catFlux),len(self.matches))   
         fig, axs = plt.subplots(3,figsize=(8,20))
         #fig.subplots_adjust(wspace=3.0)
         fig.subplots_adjust(hspace=1.0)
@@ -331,19 +336,68 @@ class CatalogMatch:
         axs[0].set_xlabel('$F_{\\rm{in}}$[mJy]',fontsize=18)
         axs[0].set_ylabel('$F_{\\rm{PSF}}$[mJy]',fontsize=18)
         axs[0].set_ylim(min(np.array(fluxPSF)*0.7),max(np.array(fluxPSF)*1.3))       
-        axs[1].errorbar(np.array(pybdsfFlux,dtype=float),np.array(fluxPSF,dtype=float),yerr=np.array(fluxPSF_err,dtype=float),fmt='.',color='black',ecolor='grey',elinewidth=0.5)
+        axs[1].errorbar(np.array(pybdsfFlux,dtype=float),np.array(fluxPSF,dtype=float),yerr=np.array(fluxPSF_err,dtype=float),xerr=np.array(pybdsfFlux_err,dtype=float),fmt='.',color='black',ecolor='grey',elinewidth=0.5)
         axs[1].plot(pybdsfFlux,pybdsfFlux,color='black')
         axs[1].set_title(tabphot.array+ ' Matched' ,fontsize=18)
         axs[1].set_xlabel('$F_{\\rm{pyBDSF}}$[mJy]',fontsize=18)
         axs[1].set_ylabel('$F_{\\rm{PSF}}$[mJy]',fontsize=18)       
         axs[1].set_ylim(min(np.array(fluxPSF)*0.8),max(np.array(fluxPSF)*1.2))   
         
-        axs[2].plot(catFlux,pybdsfFlux,'.',color='black')
+        axs[2].errorbar(catFlux,pybdsfFlux,yerr=np.array(pybdsfFlux_err,dtype=float),fmt='.',color='black',ecolor='grey',elinewidth=0.5)
         axs[2].plot(catFlux,catFlux,color='black')
         axs[2].set_title(tabphot.array+ ' Matched' ,fontsize=18)
         axs[2].set_ylabel('$F_{\\rm{pyBDSF}}$[mJy]',fontsize=18)
         axs[2].set_xlabel('$F_{\\rm{in}}$[mJy]',fontsize=18)       
         axs[2].set_ylim(min(np.array(catFlux)*0.8),max(np.array(catFlux)*1.2))           
 
+    def plotPhotPos(self,tabphot,center=(0,0)):
+        #tabphot=tabphot
+        fluxPSF = []
+        #fluxPSF_err = []
+        catFlux = []
+        radius= []
+        xpos=[]
+        ypos=[]
+        #pybdsfFlux = []
+        #pybdsfFlux_err = []
+        fluxdict={'a1100':'f1p1','a1400':'f1p4','a2000':'f2p0'}
+
+        for m in self.matches:
+         catFlux.append(m['simInputCat'][fluxdict[tabphot.array]])
+         #pybdsfFlux.append(m['pyBdsfCat']['flux'])   
+         #pybdsfFlux_err.append(m['pyBdsfCat']['flux']/m['pyBdsfCat']['s2n'])
+         index_tab=np.where( tabphot.index_weights[0]==m['pyBdsfCat']['indx'])[0]
+         #print(index_tab)
+         if len(index_tab)==1:
+            
+            fluxPSF.append(tabphot.astrotab[0]['flux_fit'][index_tab])
+            radius.append(((tabphot.astrotab[0]['x_fit'][index_tab]-center[0])**2+(tabphot.astrotab[0]['y_fit'][index_tab]-center[1])**2)**0.5)
+            xpos.append(tabphot.astrotab[0]['x_fit'][index_tab])
+            ypos.append(tabphot.astrotab[0]['y_fit'][index_tab])
+            #fluxPSF_err.append(tabphot.astrotab[0]['flux_unc'][index_tab])
+
+             
+         else:    
+           fluxPSF.append(np.nan)
+           radius.append(np.nan)
+           xpos.append(np.nan)
+           ypos.append(np.nan)
+        fig, axs = plt.subplots(3,figsize=(8,20))
+        fig.subplots_adjust(hspace=1.0)
+        
+        axs[0].plot(np.array(radius,dtype=float),np.array(fluxPSF,dtype=float)/np.array(catFlux,dtype=float),'.',color='black')
+        axs[0].set_title(tabphot.array+ ' Matched' ,fontsize=18)
+        axs[0].set_xlabel('Radius [pix]',fontsize=18)
+        axs[0].set_ylabel('$\\frac{F_{\\rm{obs}}}{F_{\\rm{in}}}$',fontsize=18)     
+        axs[1].plot(np.array(xpos,dtype=float),np.array(fluxPSF,dtype=float)/np.array(catFlux,dtype=float),'.',color='black')
+        axs[1].set_title(tabphot.array+ ' Matched' ,fontsize=18)
+        axs[1].set_xlabel('x [pix]',fontsize=18)
+        axs[1].set_ylabel('$\\frac{F_{\\rm{obs}}}{F_{\\rm{in}}}$',fontsize=18) 
+        
+        axs[2].plot(np.array(ypos,dtype=float),np.array(fluxPSF,dtype=float)/np.array(catFlux,dtype=float),'.',color='black')
+        axs[2].set_title(tabphot.array+ ' Matched' ,fontsize=18)
+        axs[2].set_xlabel('y [pix]',fontsize=18)
+        axs[2].set_ylabel('$\\frac{F_{\\rm{obs}}}{F_{\\rm{in}}}$',fontsize=18)          
+ 
 
 
