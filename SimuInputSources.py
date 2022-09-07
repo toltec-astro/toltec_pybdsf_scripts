@@ -82,38 +82,47 @@ class SimuInputSources:
         self.decs = [s.dec for s in self.sources]
         self.coords = SkyCoord([s.coords for s in self.sources])
 
-####Method to perform photometry on input catalog with known fluxes 
-    def inphotPS(self,tfipj):
+    def inphotPS(self,tis):
         """Performs Point Source photometry from an input catalog of known fluxes (SimuInputSources object) in a ToltecSignalFits object (tfipj).
         Inputs:
-         - tfipj [ToltecSignalFits class], the reduced fits file obtained from citlali already read as a ToltecSignalFits. 
+         - tfipj [ToltecSignalFits class or list of element from that class], the reduced fits file obtained from citlali already read as a ToltecSignalFits. 
         Outputs:
-         - phot_tab. AstropyTab. AstropyTab object which contains an astropy table with the psf photometry results, i.e., fluxes estimations, uncertainties, and the input fluxes from the SimuInputSources
-        """        
-  
-
-        astropytab=tfipj.photPS(self,xy_fixed=False,inphot=True)
-        phot_tab=astropytab.astrotab
+         - phot_tab. List of AstropyTab. AstropyTab object which contains an astropy table with the psf photometry results, i.e., fluxes estimations, uncertainties, and the input fluxes from the SimuInputSources
+        """       
+        phottabs_list=[]
+        index_weights_list=[]
+        labels=[]
+        if type(tis) != list:
+            tis=[tis]
+        for tfipj in  tis:   
+          astropytab=tfipj.photPS(self,xy_fixed=False,inphot=True)
+          phot_tab=astropytab.astrotab[0]
         
-        if tfipj.array=='a1100':
-         phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f1p1)[astropytab.index_weights][phot_tab['id']-1]
-        elif  tfipj.array=='a1400':
-         phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f1p4)[astropytab.index_weights][phot_tab['id']-1]
-        elif  tfipj.array=='a2000':
-         phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f2p0)[astropytab.index_weights][phot_tab['id']-1]   
-         
-        phot_tab['flux_fit_group'] = np.empty(len(phot_tab))
-        phot_tab['flux_unc_group'] = np.empty(len(phot_tab))
-        phot_tab['flux_'+tfipj.array+'_input_group'] = np.empty(len(phot_tab))
-        groupsid=list(set(phot_tab['group_id'])) 
-        #flux_in=np.empty(len(groupsid))
-        #flux_out=np.empty(len(groupsid))
-        #flux_out_err=np.empty(len(groupsid))
-        for i in groupsid: 
-          flux_in=np.sum(phot_tab['flux_'+tfipj.array+'_input'][np.where(phot_tab['group_id']==i)])
-          flux_out=np.sum(phot_tab['flux_fit'][np.where(phot_tab['group_id']==i)])
-          flux_out_err=np.sum(phot_tab['flux_unc'][np.where(phot_tab['group_id']==i)])
-          phot_tab['flux_'+tfipj.array+'_input_group'][np.where(phot_tab['group_id']==i)]=flux_in
-          phot_tab['flux_fit_group'][np.where(phot_tab['group_id']==i)]=flux_out
-          phot_tab['flux_unc_group'][np.where(phot_tab['group_id']==i)]=flux_out_err         
-        return AstropyTab(phot_tab,array=tfipj.array,inphot=True,index_weights=astropytab.index_weights)
+          if tfipj.array=='a1100':
+           #print(np.array(self.f1p1)[astropytab.index_weights[0]],astropytab.index_weights[0])
+           phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f1p1)[astropytab.index_weights[0]][phot_tab['id']-1]
+          elif  tfipj.array=='a1400':
+           phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f1p4)[astropytab.index_weights[0]][phot_tab['id']-1]
+          elif  tfipj.array=='a2000':
+           phot_tab['flux_'+tfipj.array+'_input']=np.array(self.f2p0)[astropytab.index_weights[0]][phot_tab['id']-1]   
+           
+          phot_tab['flux_fit_group'] = np.empty(len(phot_tab))
+          phot_tab['flux_unc_group'] = np.empty(len(phot_tab))
+          phot_tab['flux_'+tfipj.array+'_input_group'] = np.empty(len(phot_tab))
+          groupsid=list(set(phot_tab['group_id'])) 
+          #flux_in=np.empty(len(groupsid))
+          #flux_out=np.empty(len(groupsid))
+          #flux_out_err=np.empty(len(groupsid))
+          for i in groupsid: 
+            flux_in=np.sum(phot_tab['flux_'+tfipj.array+'_input'][np.where(phot_tab['group_id']==i)])
+            flux_out=np.sum(phot_tab['flux_fit'][np.where(phot_tab['group_id']==i)])
+            flux_out_err=np.sum(phot_tab['flux_unc'][np.where(phot_tab['group_id']==i)])
+            phot_tab['flux_'+tfipj.array+'_input_group'][np.where(phot_tab['group_id']==i)]=flux_in
+            phot_tab['flux_fit_group'][np.where(phot_tab['group_id']==i)]=flux_out
+            phot_tab['flux_unc_group'][np.where(phot_tab['group_id']==i)]=flux_out_err 
+          phottabs_list.append(phot_tab)
+          index_weights_list.append(astropytab.index_weights[0])
+          labels.append(tfipj.label)
+          #phottabs_list.append(AstropyTab(phot_tab,array=tfipj.array,inphot=True,index_weights=astropytab.index_weights))    
+        #return AstropyTab(phot_tab,array=tfipj.array,inphot=True,index_weights=astropytab.index_weights)
+        return AstropyTab(phottabs_list,array=tfipj.array,inphot=True,index_weights=index_weights_list,fitslist=labels)
