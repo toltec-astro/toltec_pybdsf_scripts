@@ -1,7 +1,9 @@
 from statsmodels.stats.proportion import proportion_confint
 from matplotlib import pyplot as plt, ticker as mticker
 import astropy.units as u
+import astropy
 import numpy as np
+from uncertainties import ufloat
 plt.ion()
 
 
@@ -325,17 +327,35 @@ class CatalogMatch:
          else:    
             fluxPSF.append(np.nan)  
             fluxPSF_err.append(0.) 
+        mean_PSF=np.nanmean(np.array(fluxPSF,dtype=float)/np.array(catFlux,dtype=float))
+        std_PSF=np.nanstd(np.array(fluxPSF,dtype=float)/np.array(catFlux,dtype=float))  
+        mean_P_BD=np.nanmean(np.array(fluxPSF,dtype=float)/pybdsfFlux)
+        std_P_BD=np.nanstd(np.array(fluxPSF,dtype=float)/pybdsfFlux)
+        mean_PyBDSF=np.nanmean(pybdsfFlux/np.array(catFlux,dtype=float))
+        std_PyBDSF=np.nanstd(pybdsfFlux/np.array(catFlux,dtype=float))  
+        
         #print(len(fluxPSF),len(catFlux),len(self.matches))   
         fig, axs = plt.subplots(3,figsize=(8,20))
         #fig.subplots_adjust(wspace=3.0)
         fig.subplots_adjust(hspace=1.0)
+        
         axs[0].errorbar(np.array(catFlux,dtype=float),np.array(fluxPSF,dtype=float),yerr=np.array(fluxPSF_err,dtype=float),fmt='.',color='black',ecolor='grey',elinewidth=0.5)
         #axs[0].plot(catFlux,fluxPSF,'.')
+        axs[0].annotate('$\\frac{F_{\\rm{PSF}}}{F_{\\rm{in}}}_{\\rm{mean}}=$'+'{:.2u}'.format(ufloat(mean_PSF,std_PSF)), xy=(0.15, 0.85), xycoords='figure fraction',
+            size=11, ha='left', va='top',
+            bbox=dict(boxstyle='round', fc='w'))
+        #axs[0].text(0.1,0.85,'$\\frac{F_{\\rm{PSF}}}{F_{\\rm{in}}}_{\\rm{mean}}=$'+'{:.1u}'.format(ufloat(mean_PSF,std_PSF)), horizontalalignment='center',
+        #verticalalignment='center', transform=axs[0].transAxes, bbox=dict(facecolor='black', alpha=0.5))
         axs[0].plot(catFlux,catFlux,color='black')
         axs[0].set_title(tabphot.array+ ' Matched' ,fontsize=18)
         axs[0].set_xlabel('$F_{\\rm{in}}$[mJy]',fontsize=18)
         axs[0].set_ylabel('$F_{\\rm{PSF}}$[mJy]',fontsize=18)
-        axs[0].set_ylim(min(np.array(fluxPSF)*0.7),max(np.array(fluxPSF)*1.3))       
+        axs[0].set_ylim(min(np.array(fluxPSF)*0.7),max(np.array(fluxPSF)*1.3))  
+        axs[1].annotate('$\\frac{F_{\\rm{PSF}}}{F_{\\rm{pyBDSF}}}_{\\rm{mean}}=$'+'{:.2u}'.format(ufloat(mean_P_BD,std_P_BD)), xy=(0.15, 0.55), xycoords='figure fraction',
+            size=11, ha='left', va='top',
+            bbox=dict(boxstyle='round', fc='w'))
+        #axs[1].text(0.1,0.85,'$\\frac{F_{\\rm{PSF}}}{F_{\\rm{pyBDSF}}}_{\\rm{mean}}=$'+'{:.1u}'.format(ufloat(mean_P_BD,std_P_BD)), horizontalalignment='center',
+        #verticalalignment='center', transform=axs[1].transAxes, bbox=dict(facecolor='black', alpha=0.5))
         axs[1].errorbar(np.array(pybdsfFlux,dtype=float),np.array(fluxPSF,dtype=float),yerr=np.array(fluxPSF_err,dtype=float),xerr=np.array(pybdsfFlux_err,dtype=float),fmt='.',color='black',ecolor='grey',elinewidth=0.5)
         axs[1].plot(pybdsfFlux,pybdsfFlux,color='black')
         axs[1].set_title(tabphot.array+ ' Matched' ,fontsize=18)
@@ -343,6 +363,11 @@ class CatalogMatch:
         axs[1].set_ylabel('$F_{\\rm{PSF}}$[mJy]',fontsize=18)       
         axs[1].set_ylim(min(np.array(fluxPSF)*0.8),max(np.array(fluxPSF)*1.2))   
         
+        axs[2].annotate('$\\frac{F_{\\rm{pyBDSF}}}{F_{\\rm{in}}}_{\\rm{mean}}=$'+'{:.2u}'.format(ufloat(mean_PyBDSF,std_PyBDSF)), xy=(0.15, 0.24), xycoords='figure fraction',
+            size=11, ha='left', va='top',
+            bbox=dict(boxstyle='round', fc='w'))
+        #axs[2].text(0.1,0.85,'$\\frac{F_{\\rm{pyBDSF}}}{F_{\\rm{in}}}_{\\rm{mean}}=$'+'{:.1u}'.format(ufloat(mean_PyBDSF,std_PyBDSF)), horizontalalignment='center',
+        #verticalalignment='center', transform=axs[2].transAxes, bbox=dict(facecolor='black', alpha=0.5))
         axs[2].errorbar(catFlux,pybdsfFlux,yerr=np.array(pybdsfFlux_err,dtype=float),fmt='.',color='black',ecolor='grey',elinewidth=0.5)
         axs[2].plot(catFlux,catFlux,color='black')
         axs[2].set_title(tabphot.array+ ' Matched' ,fontsize=18)
@@ -369,11 +394,16 @@ class CatalogMatch:
          index_tab=np.where( tabphot.index_weights[0]==m['pyBdsfCat']['indx'])[0]
          #print(index_tab)
          if len(index_tab)==1:
-            
-            fluxPSF.append(tabphot.astrotab[0]['flux_fit'][index_tab])
-            radius.append(((tabphot.astrotab[0]['x_fit'][index_tab]-center[0])**2+(tabphot.astrotab[0]['y_fit'][index_tab]-center[1])**2)**0.5)
-            xpos.append(tabphot.astrotab[0]['x_fit'][index_tab])
-            ypos.append(tabphot.astrotab[0]['y_fit'][index_tab])
+            if type(tabphot.astrotab[0]['flux_fit'][index_tab])==astropy.table.column.Column:
+              fluxPSF.append(tabphot.astrotab[0]['flux_fit'][index_tab][0])
+              radius.append(((tabphot.astrotab[0]['x_fit'][index_tab][0]-center[0])**2+(tabphot.astrotab[0]['y_fit'][index_tab][0]-center[1])**2)**0.5)
+              xpos.append(tabphot.astrotab[0]['x_fit'][index_tab][0])
+              ypos.append(tabphot.astrotab[0]['y_fit'][index_tab][0])
+            else:
+              fluxPSF.append(tabphot.astrotab[0]['flux_fit'][index_tab])
+              radius.append(((tabphot.astrotab[0]['x_fit'][index_tab]-center[0])**2+(tabphot.astrotab[0]['y_fit'][index_tab]-center[1])**2)**0.5)
+              xpos.append(tabphot.astrotab[0]['x_fit'][index_tab])
+              ypos.append(tabphot.astrotab[0]['y_fit'][index_tab])                
             #fluxPSF_err.append(tabphot.astrotab[0]['flux_unc'][index_tab])
 
              

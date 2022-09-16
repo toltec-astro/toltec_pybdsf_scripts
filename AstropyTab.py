@@ -2,17 +2,19 @@ from astropy.table import Table
 from matplotlib import pyplot as plt
 import numpy as np
 import matplotlib.colors as mcolors
+from uncertainties import ufloat
 plt.ion()
 
 class AstropyTab:
     """Utility class for reading and working with Astropy tables """
-    def __init__(self, astrotab, array='a1100',inphot=False,index_weights=[np.zeros(0)],fitslist=None):
+    def __init__(self, astrotab, array='a1100',inphot=False,catpybdsf=False,index_weights=[np.zeros(0)],fitslist=None):
         """
         Creating a AstropyTab object will read in the astropy table.
         Inputs:
            catFile (astropy.table.Table) - astropy table
            array (string) - one of 'a1100' (default), 'a1400', or 'a2000'
            inphot (bool) - if the astropy table has the input known sources defined, i.e., if the photometry has been done from a SimuInputSources object. 
+           inphot (bool) - if the astropy table has the flux from a PyBDFS catalog 
            False by default. 
         """
         if type(astrotab) != list:
@@ -20,6 +22,7 @@ class AstropyTab:
         self.astrotab=astrotab
         self.array = array
         self.inphot=inphot
+        self.catpybdsf=catpybdsf
         if type(index_weights) == list:
          if len(index_weights)> 0.:
           self.index_weights=index_weights
@@ -45,6 +48,8 @@ class AstropyTab:
             print('This table has not known input fluxes, so comparison between input fluxes and observed fluxes can not be done.')
             
         else:
+
+            
           plt.figure()
           if title != None:
            plt.suptitle(title)
@@ -53,10 +58,11 @@ class AstropyTab:
           length_colors=len(colors)
           
           for astrotabi in self.astrotab:
-            
             index_nonoise=np.where(astrotabi['flux_unc']/astrotabi['flux_fit']<1.)
-            plt.errorbar(astrotabi['flux_'+self.array+'_input'][index_nonoise],astrotabi['flux_fit'][index_nonoise],yerr=astrotabi['flux_unc'][index_nonoise],fmt='.',color=colors[np.mod(cont,length_colors)],ecolor='grey',elinewidth=0.5,label=self.fitslist[cont],alpha=0.4)
+            mean_PSF=np.nanmean(astrotabi['flux_fit'][index_nonoise]/astrotabi['flux_'+self.array+'_input'][index_nonoise])
+            std_PSF =np.nanstd(astrotabi['flux_fit'][index_nonoise]/astrotabi['flux_'+self.array+'_input'][index_nonoise])
             
+            plt.errorbar(astrotabi['flux_'+self.array+'_input'][index_nonoise],astrotabi['flux_fit'][index_nonoise],yerr=astrotabi['flux_unc'][index_nonoise],fmt='.',color=colors[np.mod(cont,length_colors)],ecolor='grey',elinewidth=0.5,label=self.fitslist[cont]+' $\\frac{F_{\\rm{obs}}}{F_{\\rm{in}}}_{\\rm{mean}}=$'+'{:.3u}'.format(ufloat(mean_PSF,std_PSF)),alpha=0.4)
 
             #plt.ylim(min(astrotabi['flux_'+self.array+'_input'])*0.4,max(astrotabi['flux_'+self.array+'_input'])*2.2)
             #plt.ylim(min(astrotabi['flux_fit'])*0.4,max(astrotabi['flux_fit'])*2.2)
@@ -80,15 +86,19 @@ class AstropyTab:
             print('This table has not known input fluxes, so comparison between input fluxes and observed fluxes can not be done.')
             
         else:
-            plt.figure()
-            plt.errorbar(self.astrotab['flux_'+self.array+'_input_group'],self.astrotab['flux_fit_group'],yerr=self.astrotab['flux_unc_group'],fmt='.',color='black',ecolor='grey',elinewidth=0.5)
-            plt.plot(self.astrotab['flux_'+self.array+'_input_group'],self.astrotab['flux_'+self.array+'_input_group'],color='black')
-            plt.title(self.array+' Grouped',fontsize=18)
-            plt.xlabel('$F_{\\rm{in}}$[mJy]',fontsize=18)
-            plt.ylabel('$F_{\\rm{obs}}$[mJy]',fontsize=18)
-            plt.ylim(min(self.astrotab['flux_'+self.array+'_input_group'])*0.4,max(self.astrotab['flux_'+self.array+'_input_group'])*2.2)
-            plt.yscale('log')
-            plt.xscale('log')        
+            
+           
+            fig, ax = plt.subplots()
+            ax.figure()
+            ax.errorbar(self.astrotab['flux_'+self.array+'_input_group'],self.astrotab['flux_fit_group'],yerr=self.astrotab['flux_unc_group'],fmt='.',color='black',ecolor='grey',elinewidth=0.5)
+            ax.plot(self.astrotab['flux_'+self.array+'_input_group'],self.astrotab['flux_'+self.array+'_input_group'],color='black')
+            
+            ax.title(self.array+' Grouped',fontsize=18)
+            ax.xlabel('$F_{\\rm{in}}$[mJy]',fontsize=18)
+            ax.ylabel('$F_{\\rm{obs}}$[mJy]',fontsize=18)
+            ax.ylim(min(self.astrotab['flux_'+self.array+'_input_group'])*0.4,max(self.astrotab['flux_'+self.array+'_input_group'])*2.2)
+            ax.yscale('log')
+            ax.xscale('log')        
            
     def plotInPhotPos(self,center=(0,0),title=None):
         """
