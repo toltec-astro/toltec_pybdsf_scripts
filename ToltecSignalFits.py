@@ -7,13 +7,16 @@ import scipy.constants as sc
 from astropy.io import fits
 from astropy.wcs import WCS
 from BdsfCat import BdsfCat
+#from BdsfCat import BdsfCat
+from SimuInputSources import SimuInputSources
 import numpy as np
 import lmfit
 import glob
 from astropy.coordinates import SkyCoord  
 from astropy.coordinates import ICRS
 from astropy.table import Table
-from astropy.modeling.fitting import LevMarLSQFitter
+from astropy.modeling.fitting import LevMarLSQFitter,TRFLSQFitter
+
 from astropy.stats import gaussian_sigma_to_fwhm
 from astropy.utils.exceptions import AstropyUserWarning
 from astropy.convolution import Gaussian2DKernel
@@ -44,7 +47,7 @@ class ToltecSignalFits:
     """
 
     #instantiate
-    def __init__(self, path='.', array='a1100',label=''):
+    def __init__(self, path='.', array='a1100',label='',fluxCorr=1.):
         """Instantiator for a ToltecSignalFits object.
         Inputs: 
           path (string) - the path to the output FITS files.
@@ -96,7 +99,7 @@ class ToltecSignalFits:
         # everything
         self.weightCut = 0
         self.weight = None
-
+ 
         # determine the beam sizes by fitting a gaussian to the kernel
         # map
 #        r, pos = self.fitImageToGaussian('kernel_I', verbose=False)
@@ -105,6 +108,8 @@ class ToltecSignalFits:
         self.maxKer=fitker[0].amplitude.value
 #        self.kerFunc = None
         self.label=label
+
+        self.fluxCorr=fluxCorr
 
     def getMap(self, name):
         """Extracts an image from the Fits file.  
@@ -126,6 +131,8 @@ class ToltecSignalFits:
                            self.weightCut*self.weight.max())
             if len(w) > 0:
                 image[w] = 0.
+        if name=='signal_I':        
+         image=image*self.fluxCorr        
         return image
             
 
@@ -340,7 +347,7 @@ class ToltecSignalFits:
                     image=None,
                     weight=None,
                     wcs=None,
-                    plotCutout=True,
+                    plotCutout=False,
                     plotFull=False,
                     plotConvolved=False,
                     returnImage=False,
@@ -666,7 +673,7 @@ class ToltecSignalFits:
         return i
     
     
-    def photPS(self,cat,method='psf',xy_fixed=True,fitfact=2.5,radius_ap=20.*u.arcsec,inphot=False):
+    def photPS(self,cat,method='psf',xy_fixed=True,fitfact=2.5,radius_ap=20.*u.arcsec,inphot=False,catpybdsf=False,catminflux=0.):
         """Performs Point Source photometry from the signal image and a catalog of positions.
         Inputs:
          - cat [BdsfCat class], the catalog from PyBDSF already read as a BdsfCat class.
@@ -675,17 +682,21 @@ class ToltecSignalFits:
          - fitfact [float], optional - default 2.5. Factor to apply to the beam size to use as a fitshape parameter in the case of psf photometry.
          - radius_ap [astropy.units.Quantity], optional -  default 20.*u.arcsec. Radius of the circular aperture in the case of aperture photometry.
          - inphot (bool) - if the input fluxes of the sources are known , i.e., if the photometry is done for a SimuInputSources object. False by default. 
+         - catpybdsf (bool) - if the input fluxes of the sources are known from a PyBDSF catalog. False by default. 
         Outputs:
          - result_tab AstropyTab. AstropyTab object which contains an astropy table with the photometry results, i.e., centroids and fluxes estimations and the initial estimates used to start the fitting process.
          - index_weights [array]. Array reporting the elements of the catalog where the weight is larger than the weightCut set at the ToltecSignalFits object (which is 0 by default). 
          
         """
 
-      
+
         tfipj=self
         ra=cat.ras
         dec=cat.decs
-        
+        if type(cat)==SimuInputSources:
+           fluxes=np.ones(len(cat.ras))+catminflux
+        elif type(cat)== BdsfCat:   
+           fluxes=np.array(cat.fluxes)
         #hdr0=tfipj.headers[0]
         hdr=tfipj.headers[1]
         array_name=tfipj.array
@@ -716,7 +727,7 @@ class ToltecSignalFits:
         flux_0=np.empty(len(x))
         for i in range(len(x)):
             
-            if (int(round(x[i])) in range(weights.shape[1])) and (int(round(y[i])) in range(weights.shape[0]-1)):
+            if (int(round(x[i])) in range(weights.shape[1])) and (int(round(y[i])) in range(weights.shape[0]-1)) and (fluxes[i]>catminflux):
              weights_xy[i]=weights[int(round(y[i])),int(round(x[i]))]
              if weights_xy[i]>0.:
               #print('weights',weights_xy[i])
@@ -727,12 +738,12 @@ class ToltecSignalFits:
               flux_0[i] =-99.  
             else: 
               weights_xy[i]=-99. 
-              flux_0[i]
+              #flux_0[i]=-99. 
         index_weights=np.where(weights_xy>tfipj.weightCut*np.nanmax(weights))[0]    
         x=x[index_weights]
         y=y[index_weights]
         flux_0=flux_0[index_weights]
-        
+        fluxes=fluxes[index_weights]
         med_weight=np.median(weights_xy[index_weights])
         if method=='psf':
             
@@ -743,8 +754,8 @@ class ToltecSignalFits:
            
            mmm_bkg = MMMBackground()
            
-           fitter = LevMarLSQFitter()
-           
+           #fitter = LevMarLSQFitter(calc_uncertainties=True)
+           #fitter2 = TRFLSQFitter(calc_uncertainties=True)
            psf_model = IntegratedGaussianPRF(sigma=sigma_psf)
            
            psf_model.x_0.fixed = xy_fixed
@@ -780,12 +791,23 @@ class ToltecSignalFits:
                                            bkg_estimator=mmm_bkg,
                                            #bkg_estimator=None,
                                            psf_model=psf_model,
-                                           fitter=LevMarLSQFitter(),
+                                           #fitter=LevMarLSQFitter(calc_uncertainties=True),
+                                           fitter=TRFLSQFitter(calc_uncertainties=True),
                                            fitshape=fitshape)
            
            result_tab = photometry(image=image, init_guesses=pos)
+           if type(cat)==BdsfCat:
+            result_tab.add_column(fluxes,name='flux'+cat.array+'_pybfsf')  
+           if not ('flux_unc' in result_tab.colnames):
+                       result_tab.add_column(np.zeros(len(result_tab)),name='flux_unc')  
+           #if     photometry.fitter.fit_info['ierr'] not in [1, 2, 3, 4]:
+               
+                 #print('Warning: fit to point sources is not good')
+                 #print(photometry.fitter.fit_info['message'])
+                 #result_tab.add_column(np.zeros(len(result_tab)),name='flux_unc')      
            id_sort=result_tab['id'].argsort()
            result_tab=result_tab[id_sort]
+
 
            #result_tab_group=photometry.nstar(image=image, star_groups=result_tab)
         elif method=='aperture':
@@ -806,7 +828,7 @@ class ToltecSignalFits:
             for col in result_tab.colnames:
         
                result_tab[col].info.format = '%.8g' 
-        return AstropyTab(result_tab,array=array_name,inphot=inphot,index_weights=index_weights)
+        return AstropyTab(result_tab,array=array_name,inphot=inphot,catpybdsf=catpybdsf,index_weights=index_weights)
 ###Segmentation of extended images    
     def segmentation(self,npixels=5,snr=3.5,min_flux=None):
       """ 
@@ -848,7 +870,7 @@ class ToltecSignalFits:
       fits.PrimaryHDU(bkg.background,header=hdr).writeto('back.fits',overwrite=True)
       #fits.PrimaryHDU(image,header=hdr).writeto('backsub.fits',overwrite=True)
       image -= bkg.background  # subtract the background   
-      fits.PrimaryHDU(image,header=hdr).writeto('backsub.fits',overwrite=True)
+      #fits.PrimaryHDU(image,header=hdr).writeto('backsub.fits',overwrite=True)
       if min_flux==None:
       
 
