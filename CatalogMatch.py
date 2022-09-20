@@ -320,8 +320,8 @@ class CatalogMatch:
          #print(index_tab)
          if len(index_tab)==1:
             
-            fluxPSF.append(tabphot.astrotab[0]['flux_fit'][index_tab])
-            fluxPSF_err.append(tabphot.astrotab[0]['flux_unc'][index_tab])
+            fluxPSF.append(tabphot.astrotab[0]['flux_fit'][index_tab][0])
+            fluxPSF_err.append(tabphot.astrotab[0]['flux_unc'][index_tab][0])
 
              
          else:    
